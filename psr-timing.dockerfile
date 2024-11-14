@@ -14,11 +14,11 @@ ENV C_INCLUDE_PATH="${C_INCLUDE_PATH}:${PSRHOME}/include"
 # System package installs
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    git \   
-    ca-certificates \
-    build-essential \
+    wget git \   
+    ca-certificates openssh-server \
+    build-essential cmake \
     libfftw3-bin libfftw3-dev \
-    libgsl-dev gsl-bin \
+    libgsl-dev libgslcblas0 gsl-bin \
     libblas-dev liblapack-dev \
     pgplot5 xauth xorg \
     libcfitsio-bin libcfitsio-dev \
@@ -63,11 +63,54 @@ RUN pip install numpy && \
 
 # Download software repositories
 WORKDIR ${PSRHOME}
+ARG CALCEPH_VER="4.0.1"
 RUN git clone https://git.code.sf.net/p/tempo/tempo && \
     git clone https://bitbucket.org/psrsoft/tempo2.git && \
-    git clone https://github.com/ipta/pulsar-clock-corrections.git
+    git clone https://github.com/ipta/pulsar-clock-corrections.git && \
+    wget "https://www.atnf.csiro.au/research/pulsar/psrcat/downloads/psrcat_pkg.tar.gz" && \
+    wget "https://www.imcce.fr/content/medias/recherche/equipes/asd/calceph/calceph-${CALCEPH_VER}.tar.gz"
 
 ## INSTALL ##
+##########
+# PSRCAT #
+##########
+ENV PSRCAT_FILE=${PSRHOME}/share/psrcat.db
+ENV PSRCAT_DIR=${PSRHOME}/psrcat
+
+RUN tar -xvf psrcat_pkg.tar.gz && \
+    mv psrcat_tar psrcat && \
+    rm -f psrcat_pkg.tar.gz && \
+    mkdir -p ${PSRHOME}/bin && \
+    mkdir -p ${PSRHOME}/share
+WORKDIR ${PSRCAT_DIR}
+RUN tcsh makeit && \
+    cp psrcat ${PSRHOME}/bin && \
+    cp *.db ${PSRHOME}/share
+
+###########
+# CALCEPH #
+###########
+ENV CALCEPH_DIR="${PSRHOME}/calceph-${CALCEPH_VER}"
+ENV CALCEPH="${CALCEPH_DIR}/install"
+ENV PATH="${PATH}:${CALCEPH}/bin"
+ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${CALCEPH}/lib"
+ENV C_INCLUDE_PATH="${C_INCLUDE_PATH}:${CALCEPH}/include"
+
+WORKDIR ${PSRHOME}
+RUN tar -xvf calceph-${CALCEPH_VER}.tar.gz && \
+    rm -f calceph-${CALCEPH_VER}.tar.gz
+WORKDIR ${CALCEPH_DIR}
+RUN mkdir -p ${CALCEPH_DIR}/build && cd ${CALCEPH_DIR}/build && \
+    CC=gcc CXX=g++ FC=gfortran \
+    FFLAGS="$FFLAGS -O3 -march=znver3" \
+    CFLAGS="$CFLAGS -O3 -march=znver3" \
+    CXXFLAGS="$CXXFLAGS -O3 -march=znver3" \
+    cmake -DCMAKE_INSTALL_PREFIX=${CALCEPH} -DBUILD_SHARED_LIBS=ON .. && \
+    cmake --build . --target all && \
+    cmake --build . --target test && \
+    cmake --build . --target install && \
+    cmake --build . --target clean
+
 ########
 # PINT #
 ########
@@ -112,9 +155,6 @@ RUN ./prepare && \
     cp ${TEMPO_DIR}/util/wgttpo/wgttpo.pl ${TEMPO}/bin/wgttpo && \
     cp ${TEMPO_DIR}/util/wgttpo/wgttpo_emin.pl ${TEMPO}/bin/wgttpo_emin && \
     cp ${TEMPO_DIR}/util/wgttpo/wgttpo_equad.pl ${TEMPO}/bin/wgttpo_equad && \
-    cd ${TEMPO_DIR}/util/ut1 && \
-    gcc -o predict_ut1 predict_ut1.c $(gsl-config --libs) && \
-    cp predict_ut1 check.ut1 do.iers.ut1 do.iers.ut1.new get_ut1 get_ut1_new make_ut1 ${TEMPO}/bin/ && \
     cp ${TEMPO_DIR}/util/compare_tempo/compare_tempo ${TEMPO}/bin/ && \
     cp ${TEMPO_DIR}/util/pubpar/pubpar.py ${TEMPO}/bin/ && \
     chmod +x ${TEMPO}/bin/pubpar.py && \
@@ -141,14 +181,14 @@ RUN ./bootstrap && \
     cp -r T2runtime/ ${TEMPO2}/ && \
     CC=gcc CXX=g++ FC=gfortran F77=gfortran ./configure --prefix=${TEMPO2} \
     --with-x --x-libraries=/usr/lib/x86_64-linux-gnu \
-    --with-fftw3-dir=/usr \
+    --with-fftw3-dir=/usr --with-calceph=${CALCEPH} \
     --enable-shared --enable-static --with-pic \
-    FFLAGS="$FFLAGS -O3" \
-    CFLAGS="$CFLAGS -O3 -march=znver3 -I${PGPLOT_DIR}/include/ -L${PGPLOT_DIR}/lib/" \
-    CPPFLAGS="$CPPFLAGS -O3 -march=znver3 -I${PGPLOT_DIR}/include/ -L${PGPLOT_DIR}/lib/" \
-    CXXFLAGS="$CXXFLAGS $CPPFLAGS" && \
-    make -j && \
-    make -j plugins && \
+    FFLAGS="$FFLAGS -O3 -march=znver3 -I${CALCEPH}/include" \
+    CFLAGS="$CFLAGS -O3 -march=znver3 -I${PGPLOT_DIR}/include -I${CALCEPH}/include" \
+    CXXFLAGS="$CXXFLAGS -O3 -march=znver3 -I${PGPLOT_DIR}/include -I${CALCEPH}/include" \
+    LDFLAGS="$LDFLAGS -L${PGPLOT_DIR}/lib -lpgplot -lcpgplot -L${CALCEPH}/lib -lcalceph"&& \
+    make -j 8 && \
+    make -j 8 plugins && \
     make install && \
     make plugins-install && \
     make clean && make plugins-clean
