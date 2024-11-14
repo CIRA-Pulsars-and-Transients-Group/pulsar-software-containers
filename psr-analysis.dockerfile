@@ -65,12 +65,14 @@ RUN pip install numpy && \
 
 # Download software repositories
 WORKDIR ${PSRHOME}
+ARG CALCEPH_VER="4.0.1"
 RUN git clone https://bitbucket.org/psrsoft/tempo2.git && \
     git clone https://github.com/ipta/pulsar-clock-corrections.git && \
     git clone git://git.code.sf.net/p/psrchive/code psrchive && \
     git clone git://git.code.sf.net/p/dspsr/code dspsr && \
     git clone https://github.com/weltevrede/psrsalsa.git && \
-    wget "https://www.atnf.csiro.au/research/pulsar/psrcat/downloads/psrcat_pkg.tar.gz" 
+    wget "https://www.atnf.csiro.au/research/pulsar/psrcat/downloads/psrcat_pkg.tar.gz" && \
+    wget "https://www.imcce.fr/content/medias/recherche/equipes/asd/calceph/calceph-${CALCEPH_VER}.tar.gz"
 
 ### INSTALL ###
 
@@ -80,16 +82,39 @@ RUN git clone https://bitbucket.org/psrsoft/tempo2.git && \
 ENV PSRCAT_FILE=${PSRHOME}/share/psrcat.db
 ENV PSRCAT_DIR=${PSRHOME}/psrcat
 
-RUN gunzip psrcat_pkg.tar.gz && \
-    tar -xvf psrcat_pkg.tar && \
+RUN tar -xvf psrcat_pkg.tar.gz && \
     mv psrcat_tar psrcat && \
-    rm -f psrcat_pkg.tar.gz psrcat_pkg.tar && \
-    mkdir -p ${PSRHOME}/bin && 
+    rm -f psrcat_pkg.tar.gz && \
+    mkdir -p ${PSRHOME}/bin && \
     mkdir -p ${PSRHOME}/share
 WORKDIR ${PSRCAT_DIR}
-RUN source makeit && \
+RUN tcsh makeit && \
     cp psrcat ${PSRHOME}/bin && \
     cp *.db ${PSRHOME}/share
+
+###########
+# CALCEPH #
+###########
+ENV CALCEPH_DIR="${PSRHOME}/calceph-${CALCEPH_VER}"
+ENV CALCEPH="${CALCEPH_DIR}/install"
+ENV PATH="${PATH}:${CALCEPH}/bin"
+ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${CALCEPH}/lib"
+ENV C_INCLUDE_PATH="${C_INCLUDE_PATH}:${CALCEPH}/include"
+
+WORKDIR ${PSRHOME}
+RUN tar -xvf calceph-${CALCEPH_VER}.tar.gz && \
+    rm -f calceph-${CALCEPH_VER}.tar.gz
+WORKDIR ${CALCEPH_DIR}
+RUN mkdir -p ${CALCEPH_DIR}/build && cd ${CALCEPH_DIR}/build && \
+    CC=gcc CXX=g++ FC=gfortran \
+    FFLAGS="$FFLAGS -O3 -march=znver3" \
+    CFLAGS="$CFLAGS -O3 -march=znver3" \
+    CXXFLAGS="$CXXFLAGS -O3 -march=znver3" \
+    cmake -DCMAKE_INSTALL_PREFIX=${CALCEPH} -DBUILD_SHARED_LIBS=ON .. && \
+    cmake --build . --target all && \
+    cmake --build . --target test && \
+    cmake --build . --target install && \
+    cmake --build . --target clean
 
 ##########
 # TEMPO2 #
@@ -106,12 +131,12 @@ RUN ./bootstrap && \
     cp -r T2runtime/ ${TEMPO2}/ && \
     CC=gcc CXX=g++ FC=gfortran F77=gfortran ./configure --prefix=${TEMPO2} \
     --with-x --x-libraries=/usr/lib/x86_64-linux-gnu \
-    --with-fftw3-dir=/usr \
+    --with-fftw3-dir=/usr --with-calceph=${CALCEPH} \
     --enable-shared --enable-static --with-pic \
-    FFLAGS="$FFLAGS -O3 -march=znver3" \
-    CFLAGS="$CFLAGS -O3 -march=znver3 -I${PGPLOT_DIR}/include/ -L${PGPLOT_DIR}/lib/" \
-    CPPFLAGS="$CPPFLAGS -O3 -march=znver3 -I${PGPLOT_DIR}/include/ -L${PGPLOT_DIR}/lib/" \
-    CXXFLAGS="$CXXFLAGS $CPPFLAGS" && \
+    FFLAGS="$FFLAGS -O3 -march=znver3 -I${CALCEPH}/include" \
+    CFLAGS="$CFLAGS -O3 -march=znver3 -I${PGPLOT_DIR}/include -I${CALCEPH}/include" \
+    CXXFLAGS="$CXXFLAGS -O3 -march=znver3 -I${PGPLOT_DIR}/include -I${CALCEPH}/include" \
+    LDFLAGS="$LDFLAGS -L${PGPLOT_DIR}/lib -lpgplot -lcpgplot -L${CALCEPH}/lib -lcalceph"&& \
     make -j 8 && \
     make -j 8 plugins && \
     make install && \
@@ -168,8 +193,7 @@ RUN ./bootstrap && \
     CC=gcc CXX=g++ F77=gfortran PYTHON=$(which python) \
     FFLAGS="$FFLAGS -O3 -march=znver3 -I/usr/local/include/" \
     CFLAGS="$CFLAGS -O3 -march=znver3 -I/usr/local/include/ -I${PGPLOT_DIR}/include/ -L${PGPLOT_DIR}/lib/" \
-    CPPFLAGS="$CPPFLAGS -O3 -march=znver3 -I/usr/local/include -I${PGPLOT_DIR}/include/ -L${PGPLOT_DIR}/lib/" \
-    CXXFLAGS="$CXXFLAGS $CPPFLAGS" && \
+    CXXFLAGS="$CXXFLAGS -O3 -march=znver3 -I/usr/local/include -I${PGPLOT_DIR}/include/ -L${PGPLOT_DIR}/lib/" \
     LDFLAGS="-L${PGPLOT_DIR}/lib/" && \
     make -j 8 && \
     make install && \
