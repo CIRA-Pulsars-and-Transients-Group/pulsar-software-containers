@@ -69,9 +69,27 @@ RUN git clone https://bitbucket.org/psrsoft/tempo2.git && \
     git clone https://github.com/ipta/pulsar-clock-corrections.git && \
     git clone git://git.code.sf.net/p/psrchive/code psrchive && \
     git clone git://git.code.sf.net/p/dspsr/code dspsr && \
-    git clone https://github.com/weltevrede/psrsalsa.git
+    git clone https://github.com/weltevrede/psrsalsa.git && \
+    wget "https://www.atnf.csiro.au/research/pulsar/psrcat/downloads/psrcat_pkg.tar.gz" 
 
 ### INSTALL ###
+
+##########
+# PSRCAT #
+##########
+ENV PSRCAT_FILE=${PSRHOME}/share/psrcat.db
+ENV PSRCAT_DIR=${PSRHOME}/psrcat
+
+RUN gunzip psrcat_pkg.tar.gz && \
+    tar -xvf psrcat_pkg.tar && \
+    mv psrcat_tar psrcat && \
+    rm -f psrcat_pkg.tar.gz psrcat_pkg.tar && \
+    mkdir -p ${PSRHOME}/bin && 
+    mkdir -p ${PSRHOME}/share
+WORKDIR ${PSRCAT_DIR}
+RUN source makeit && \
+    cp psrcat ${PSRHOME}/bin && \
+    cp *.db ${PSRHOME}/share
 
 ##########
 # TEMPO2 #
@@ -137,12 +155,12 @@ RUN make -j 8 && \
 # PSRCHIVE #
 ############
 ENV PSRCHIVE_DIR="${PSRHOME}/psrchive"
-#ENV PSRCHIVE="${PSRHOME}/psrchive/install"
 ENV PATH="${PATH}:${PSRHOME}/bin"
 ENV C_INCLUDE_PATH="${C_INCLUDE_PATH}:${PSRHOME}/include"
 ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${PSRHOME}/lib"
 ENV PYTHONPATH="${PYTHONPATH}:${PSRHOME}/lib/python3.12/site-packages"
 ENV PKG_CONFIG_PATH="${PKG_CONFIG_PATH}:${PSRHOME}/lib/pkgconfig"
+ENV PSRCHIVE_CONFIG="${PSRHOME}/share/psrchive.config"
 
 WORKDIR ${PSRCHIVE_DIR}
 RUN ./bootstrap && \
@@ -158,21 +176,17 @@ RUN ./bootstrap && \
     make clean && \
     ldconfig
 
-RUN cd ${HOME} && \
-    ${PSRHOME}/bin/psrchive_config > ${HOME}/.psrchive.cfg && \
-    sed -i 's/# Dispersion::barycentric_correction = 0/Dispersion::barycentric_correction = 1/' .psrchive.cfg && \
-    sed -i 's/# WeightedFrequency::round_to_kHz = 1/WeightedFrequency::round_to_kHz = 0/' .psrchive.cfg && \
-    sed -i 's/# Predictor::default = polyco/Predictor::default = tempo2/' .psrchive.cfg && \
-    sed -i 's/# Predictor::policy = ephem/Predictor::policy = default/' .psrchive.cfg
+RUN mkdir -p ${PSRHOME}/share && \
+    ${PSRHOME}/bin/psrchive_config > ${PSRCHIVE_CONFIG} && \
+    sed -i 's/# Dispersion::barycentric_correction = 0/Dispersion::barycentric_correction = 1/' ${PSRCHIVE_CONFIG} && \
+    sed -i 's/# WeightedFrequency::round_to_kHz = 1/WeightedFrequency::round_to_kHz = 0/' ${PSRCHIVE_CONFIG} && \
+    sed -i 's/# Predictor::default = polyco/Predictor::default = tempo2/' ${PSRCHIVE_CONFIG} && \
+    sed -i 's/# Predictor::policy = ephem/Predictor::policy = default/' ${PSRCHIVE_CONFIG}
 
 #########
 # DSPSR #
 #########
 ENV DSPSR_DIR="${PSRHOME}/dspsr"
-#ENV DSPSR="${PSRHOME}/dspsr/install"
-#ENV PATH="${PATH}:${DSPSR}/bin"
-#ENV C_INCLUDE_PATH="${C_INCLUDE_PATH}:${DSPSR}/include"
-#ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${DSPSR}/lib"
 
 WORKDIR ${DSPSR_DIR}
 #RUN swig -version && echo "${PKG_CONFIG_PATH}" && ls /software/lib/pkgconfig && echo "$(pkg-config --libs psrchive)" && echo "-I${PSRHOME}/include -I${PSRHOME}/include/epsic"
