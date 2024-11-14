@@ -14,14 +14,14 @@ ENV PYTHONPATH="${PYTHONPATH}:${PSRHOME}/local/lib/python3.12/dist-packages"
 RUN apt-get update &&\
     apt-get install -y --no-install-recommends \
     git wget \   
-    ca-certificates \
+    ca-certificates openssh-server \
     build-essential \
     perl libpcre2-dev pcre2-utils libpcre3 libpcre3-dev locales \
     libfftw3-bin libfftw3-dev \
     libblas-dev liblapack-dev \
     pgplot5 xauth xorg \
     libglib2.0-dev \
-    libgsl-dev gsl-bin \
+    libgsl-dev libgslcblas0 gsl-bin \
     libcfitsio-bin libcfitsio-dev \
     libpng-dev libpnglite-dev \
     gfortran gcc g++ swig \
@@ -63,7 +63,26 @@ WORKDIR ${PSRHOME}
 RUN git clone https://git.code.sf.net/p/tempo/tempo tempo && \
     git clone https://github.com/ipta/pulsar-clock-corrections.git && \
     git clone https://github.com/scottransom/presto.git presto && \
-    git clone https://github.com/v-morello/riptide.git riptide
+    git clone https://github.com/v-morello/riptide.git riptide && \
+    wget "https://www.atnf.csiro.au/research/pulsar/psrcat/downloads/psrcat_pkg.tar.gz"
+
+### INSTALL ###
+
+##########
+# PSRCAT #
+##########
+ENV PSRCAT_FILE=${PSRHOME}/share/psrcat.db
+ENV PSRCAT_DIR=${PSRHOME}/psrcat
+
+RUN tar -xvf psrcat_pkg.tar.gz && \
+    mv psrcat_tar psrcat && \
+    rm -f psrcat_pkg.tar.gz && \
+    mkdir -p ${PSRHOME}/bin && \
+    mkdir -p ${PSRHOME}/share
+WORKDIR ${PSRCAT_DIR}
+RUN tcsh makeit && \
+    cp psrcat ${PSRHOME}/bin && \
+    cp *.db ${PSRHOME}/share
 
 #########
 # TEMPO #
@@ -79,41 +98,7 @@ RUN ./prepare && \
     make install && \
     make clean && \
     cp -r clock/ ephem/ tzpar/ obsys.dat tempo.cfg tempo.hlp ${TEMPO} && \
-    sed -i "s;${TEMPO_DIR};${TEMPO};g" ${TEMPO}/tempo.cfg && \
-    cd ${TEMPO_DIR}/src && \
-    make matrix && \
-    cp matrix ${TEMPO}/bin/ && \
-    cd ${TEMPO_DIR}/util/lk && \
-    gfortran -o lk lk.f && \
-    cp lk ${TEMPO}/bin/ && \
-    cp ${TEMPO_DIR}/util/dmx/* ${TEMPO}/bin/ && \
-    cp ${TEMPO_DIR}/util/dmxparse/* ${TEMPO}/bin/ && \
-    cp ${TEMPO_DIR}/util/dmx_ranges/* ${TEMPO}/bin/ && \
-    chmod +x ${TEMPO}/bin/DMX_ranges2.py && \
-    cp ${TEMPO_DIR}/util/dmx_broaden/* ${TEMPO}/bin/ && \
-    cp ${TEMPO_DIR}/util/cull/cull.pl ${TEMPO}/bin/cull && \
-    cp ${TEMPO_DIR}/util/extract/extract.pl ${TEMPO}/bin/extract && \
-    cp ${TEMPO_DIR}/util/obswgt/obswgt.pl ${TEMPO}//bin/obswg && \   
-    cd ${TEMPO_DIR}/util/print_resid && \
-    make -j && \
-    cp print_resid ${TEMPO}/bin/ && \
-    cp ${TEMPO_DIR}/util/res_avg/* ${TEMPO}/bin/ && \
-    cp ${TEMPO_DIR}/util/wgttpo/wgttpo.pl ${TEMPO}/bin/wgttpo && \
-    cp ${TEMPO_DIR}/util/wgttpo/wgttpo_emin.pl ${TEMPO}/bin/wgttpo_emin && \
-    cp ${TEMPO_DIR}/util/wgttpo/wgttpo_equad.pl ${TEMPO}/bin/wgttpo_equad && \
-    cd ${TEMPO_DIR}/util/ut1 && \
-    gcc -o predict_ut1 predict_ut1.c $(gsl-config --libs) && \
-    cp predict_ut1 check.ut1 do.iers.ut1 do.iers.ut1.new get_ut1 get_ut1_new make_ut1 ${TEMPO}/bin/ && \
-    cp ${TEMPO_DIR}/util/compare_tempo/compare_tempo ${TEMPO}/bin/ && \
-    cp ${TEMPO_DIR}/util/pubpar/pubpar.py ${TEMPO}/bin/ && \
-    chmod +x ${TEMPO}/bin/pubpar.py && \
-    cp ${TEMPO_DIR}/util/center_epoch/center_epoch.py ${TEMPO}/bin/ && \
-    cd ${TEMPO_DIR}/util/avtime && \
-    gfortran -o avtime avtime.f && \
-    cp avtime ${TEMPO}/bin/ && \
-    cd ${TEMPO_DIR}/util/non_tempo && \
-    cp dt mjd aolst ${TEMPO}/bin/ && \
-    cd ${TEMPO_DIR}
+    sed -i "s;${TEMPO_DIR};${TEMPO};g" ${TEMPO}/tempo.cfg
 
 ############################
 # Update clock corrections #
@@ -156,11 +141,11 @@ RUN sed -i "s:pip install -e:pip install --prefix=$PSRHOME:" Makefile && \
     make install && \
     make clean
 
-RUN ls ${PSRHOME}
+##############
+# sigpyproc3 #
+############## 
+WORKDIR ${PSRHOME}
+RUN pip install --prefix=${PSRHOME} git+https://github.com/FRBs/sigpyproc3
+
 
 WORKDIR ${PSRHOME}
-
-
-
-
-
