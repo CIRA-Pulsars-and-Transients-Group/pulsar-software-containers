@@ -239,7 +239,9 @@ RUN pip install --prefix=${PSRHOME} --no-cache-dir -U lmfit PyWavelets && \
 ########
 # CLFD #
 ########
-RUN pip install --prefix=${PSRHOME} clfd
+RUN git clone https://github.com/bwmeyers/clfd.git clfd
+WORKDIR clfd
+RUN pip install --prefix=${PSRHOME} .
 
 
 WORKDIR ${PSRHOME}
