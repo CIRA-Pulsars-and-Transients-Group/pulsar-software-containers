@@ -127,6 +127,11 @@ RUN pip install --config-settings=builddir=build .
 
 # Ensure scripts in presto/examplescripts are executable
 RUN chmod +x ${PRESTO}/examplescripts/*.py
+# Fix the shebangs
+RUN cd ${PRESTO}/examplescripts && \
+    sed -i '1s;^;#!/usr/bin/env python\n;' ACCEL_sift.py concatdata.py dedisp.py ffdot_example.py jerk_example.py pdm2raw.py show_zresp.py testcorr.py && \
+    sed -i '1s;.*;#!/usr/bin/env python;' short_analysis_simple.py ppdot_plane_plot.py full_analysis.py && \
+    cd -
 
 # In principle you can generate wisdom here, but it's not that useful
 # for machines with different architectures than the one on which the
