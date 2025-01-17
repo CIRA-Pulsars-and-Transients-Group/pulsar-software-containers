@@ -125,6 +125,9 @@ RUN CFLAGS="$CFLAGS -march=znver3 -O3" meson compile -C build && \
 WORKDIR ${PRESTO}/python
 RUN pip install --config-settings=builddir=build .
 
+# Ensure scripts in presto/examplescripts are executable
+RUN chmod +x ${PRESTO}/examplescripts/*.py
+
 # In principle you can generate wisdom here, but it's not that useful
 # for machines with different architectures than the one on which the
 # docker container was built.
