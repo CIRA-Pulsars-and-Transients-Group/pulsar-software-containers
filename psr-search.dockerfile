@@ -28,7 +28,7 @@ RUN apt-get update &&\
     tcsh csh \
     autoconf autotools-dev automake autogen libtool libltdl-dev pkg-config \
     libx11-dev tk-dev \
-    python3-dev python3-numpy python3-pip python3-venv python3-tk \
+    python3-dev python3-pip python3-venv python3-tk \
     vim less \
     rsync \
     latex2html && \
@@ -61,7 +61,6 @@ RUN pip install meson meson-python ninja
 # Download software repositories
 WORKDIR ${PSRHOME}
 RUN git clone https://git.code.sf.net/p/tempo/tempo tempo && \
-    git clone https://github.com/ipta/pulsar-clock-corrections.git && \
     git clone https://github.com/scottransom/presto.git presto && \
     git clone https://github.com/v-morello/riptide.git riptide && \
     wget "https://www.atnf.csiro.au/research/pulsar/psrcat/downloads/psrcat_pkg.tar.gz"
@@ -71,8 +70,8 @@ RUN git clone https://git.code.sf.net/p/tempo/tempo tempo && \
 ##########
 # PSRCAT #
 ##########
-ENV PSRCAT_FILE=${PSRHOME}/share/psrcat.db
-ENV PSRCAT_DIR=${PSRHOME}/psrcat
+ENV PSRCAT_FILE="${PSRHOME}/share/psrcat.db"
+ENV PSRCAT_DIR="${PSRHOME}/psrcat"
 
 RUN tar -xvf psrcat_pkg.tar.gz && \
     mv psrcat_tar psrcat && \
@@ -80,7 +79,7 @@ RUN tar -xvf psrcat_pkg.tar.gz && \
     mkdir -p ${PSRHOME}/bin && \
     mkdir -p ${PSRHOME}/share
 WORKDIR ${PSRCAT_DIR}
-RUN tcsh makeit && \
+RUN sh makeit && \
     cp psrcat ${PSRHOME}/bin && \
     cp *.db ${PSRHOME}/share
 
@@ -100,13 +99,6 @@ RUN ./prepare && \
     cp -r clock/ ephem/ tzpar/ obsys.dat tempo.cfg tempo.hlp ${TEMPO} && \
     sed -i "s;${TEMPO_DIR};${TEMPO};g" ${TEMPO}/tempo.cfg
 
-############################
-# Update clock corrections #
-############################
-WORKDIR ${PSRHOME}/pulsar-clock-corrections
-RUN pip install --prefix=${PSRHOME} -r requirements.txt
-RUN python download-clock-corrections.py
-
 ##########
 # PRESTO #
 ##########
@@ -114,8 +106,8 @@ WORKDIR ${PSRHOME}/presto
 
 ENV PRESTO="${PSRHOME}/presto"
 ENV PATH="${PRESTO}/installation/bin:${PATH}"
-ENV LIBRARY_PATH=${PRESTO}/installation/lib/x86_64-linux-gnu:${LIBRARY_PATH}
-ENV LD_LIBRARY_PATH=${PRESTO}/installation/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}
+ENV LIBRARY_PATH="${PRESTO}/installation/lib/x86_64-linux-gnu:${LIBRARY_PATH}"
+ENV LD_LIBRARY_PATH="${PRESTO}/installation/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}"
 
 RUN CFLAGS="$CFLAGS -march=znver3 -O3" meson setup build --prefix=${PRESTO}/installation && \
     python check_meson_build.py
@@ -155,5 +147,27 @@ RUN sed -i "s:pip install -e:pip install --prefix=$PSRHOME:" Makefile && \
 WORKDIR ${PSRHOME}
 RUN pip install --prefix=${PSRHOME} git+https://github.com/FRBs/sigpyproc3
 
+
+# Fix Singularity environment setup
+# Singularity: will execute scripts in /.singularity.d/env/ at startup (and ignore those in /etc/profile.d/).
+#              Standard naming of "environment" scripts is 9X-environment.sh
+RUN mkdir -p /.singularity.d/env/
+RUN echo "export OSTYPE=$OSTYPE" >> /.singularity.d/env/91-environment.sh && \
+    echo "export LANG=$LANG LC_ALL=$LC_ALL LANGUAGE=$LANGUAGE" >> /.singularity.d/env/91-environment.sh && \
+    echo "export LIBRARY_PATH=$LIBRARY_PATH" >> /.singularity.d/env/91-environment.sh && \
+    echo "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> /.singularity.d/env/91-environment.sh && \
+    echo "export C_INCLUDE_PATH=$C_INCLUDE_PATH" >> /.singularity.d/env/91-environment.sh && \
+    echo "export PATH=$PATH" >> /.singularity.d/env/91-environment.sh && \
+    echo "export PYTHONPATH=$PYTHONPATH" >> /.singularity.d/env/91-environment.sh && \
+    echo "export PSRHOME=$PSRHOME" >> /.singularity.d/env/91-environment.sh && \
+    echo "export PSRCAT_DIR=$PSRCAT_DIR PSRCAT_FILE=$PSRCAT_FILE" >> /.singularity.d/env/91-environment.sh && \
+    echo "export TEMPO=$TEMPO TEMPO_DIR=$TEMPO_DIR" >> /.singularity.d/env/91-environment.sh && \
+    echo "export PRESTO=$PRESTO" >> /.singularity.d/env/91-environment.sh && \
+    echo "export PGPLOT_DIR=$PGPLOT_DIR PGPLOT_INCLUDES=$PGPLOT_INCLUDES PGPLOT_FONT=$PGPLOT_FONT" >> /.singularity.d/env/91-environment.sh && \
+    echo "export PGPLOT_DEV=$PGPLOT_DEV PGPLOT_BACKGROUND=$PGPLOT_BACKGROUND PGPLOT_FOREGROUND=$PGPLOT_FOREGROUND" >> /.singularity.d/env/91-environment.sh
+
+# Copy the recipe into the docker recipes directory
+RUN mkdir -p /opt/docker-recipes/
+COPY psr-search.dockerfile /opt/docker-recipes/
 
 WORKDIR ${PSRHOME}
