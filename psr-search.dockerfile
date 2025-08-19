@@ -178,5 +178,4 @@ RUN ldconfig
 
 WORKDIR ${PSRHOME}
 
-RUN /bin/mv /bin/sh /bin/sh.original && /bin/ln -s /bin/bash /bin/sh
-
+ENTRYPOINT ["/bin/bash"]
