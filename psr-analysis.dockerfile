@@ -10,6 +10,8 @@ ENV PSRHOME=/software
 ENV PATH="${PATH}:${PSRHOME}/bin"
 ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${PSRHOME}/lib"
 ENV C_INCLUDE_PATH="${C_INCLUDE_PATH}:${PSRHOME}/include"
+ENV PYTHONPATH="${PYTHONPATH}:${PSRHOME}/local/lib/python3.12/site-packages:${PSRHOME}/local/lib/python3.12/dist-packages"
+ENV PYTHONPATH="${PYTHONPATH}:${PSRHOME}/lib/python3.12/site-packages:${PSRHOME}/lib/python3.12/dist-packages"
 
 # System package installs
 RUN apt-get update && \
@@ -30,7 +32,7 @@ RUN apt-get update && \
     tcsh csh \
     libx11-dev tk-dev \
     swig \
-    python3-dev python3-numpy python3-pip python3-venv python3-tk && \
+    python3-dev python3-pip python3-venv python3-tk && \
     rm -rf /var/lib/apt/lists/* && apt-get -y clean
 
 # Setup PGPLOT environment 
@@ -57,16 +59,21 @@ RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1
     python3 -V
 
 # Install required systems Python packages
-RUN pip install numpy && \
-    pip install scipy && \
-    pip install matplotlib && \
-    pip install ipython
+WORKDIR ${PSRHOME}
+RUN pip install --prefix=${PSRHOME} "numpy<2.0.0" && \
+    pip install --prefix=${PSRHOME} scipy && \
+    pip install --prefix=${PSRHOME} matplotlib && \
+    pip install --prefix=${PSRHOME} ipython && \
+    pip install --prefix=${PSRHOME} future && \
+    ls ${PSRHOME}/local/lib/python3.12 && \
+    echo "$(which python)" && python -V && python -c "import numpy;print(numpy.__version__)"
 
 
 # Download software repositories
 WORKDIR ${PSRHOME}
-ARG CALCEPH_VER="4.0.1"
+ARG CALCEPH_VER="4.0.5"
 RUN git clone https://bitbucket.org/psrsoft/tempo2.git && \
+    git clone https://git.code.sf.net/p/tempo/tempo tempo && \    
     git clone https://github.com/ipta/pulsar-clock-corrections.git && \
     git clone git://git.code.sf.net/p/psrchive/code psrchive && \
     git clone git://git.code.sf.net/p/dspsr/code dspsr && \
@@ -88,7 +95,7 @@ RUN tar -xvf psrcat_pkg.tar.gz && \
     mkdir -p ${PSRHOME}/bin && \
     mkdir -p ${PSRHOME}/share
 WORKDIR ${PSRCAT_DIR}
-RUN tcsh makeit && \
+RUN sh makeit && \
     cp psrcat ${PSRHOME}/bin && \
     cp *.db ${PSRHOME}/share
 
@@ -115,6 +122,22 @@ RUN mkdir -p ${CALCEPH_DIR}/build && cd ${CALCEPH_DIR}/build && \
     cmake --build . --target test && \
     cmake --build . --target install && \
     cmake --build . --target clean
+
+#########
+# TEMPO #
+#########
+ENV TEMPO_DIR="${PSRHOME}/tempo"
+ENV TEMPO="${PSRHOME}/tempo/install"
+ENV PATH="${PATH}:${TEMPO}/bin"
+
+WORKDIR ${TEMPO_DIR}
+RUN ./prepare && \
+    ./configure --prefix=${TEMPO} FC=gfortran F77=gfortran FFLAGS="$FFLAGS -O3 -march=znver3" && \
+    make -j && \
+    make install && \
+    make clean && \
+    cp -r clock/ ephem/ tzpar/ obsys.dat tempo.cfg tempo.hlp ${TEMPO} && \
+    sed -i "s;${TEMPO_DIR};${TEMPO};g" ${TEMPO}/tempo.cfg
 
 ##########
 # TEMPO2 #
@@ -183,18 +206,18 @@ ENV PSRCHIVE_DIR="${PSRHOME}/psrchive"
 ENV PATH="${PATH}:${PSRHOME}/bin"
 ENV C_INCLUDE_PATH="${C_INCLUDE_PATH}:${PSRHOME}/include"
 ENV LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${PSRHOME}/lib"
-ENV PYTHONPATH="${PYTHONPATH}:${PSRHOME}/lib/python3.12/site-packages"
 ENV PKG_CONFIG_PATH="${PKG_CONFIG_PATH}:${PSRHOME}/lib/pkgconfig"
 ENV PSRCHIVE_CONFIG="${PSRHOME}/share/psrchive.config"
 
 WORKDIR ${PSRCHIVE_DIR}
-RUN ./bootstrap && \
+RUN git checkout 2025-07-16 && \
+    ./bootstrap && \
     ./configure --prefix=${PSRHOME} --with-x --x-libraries=/usr/lib/x86_64-linux-gnu --enable-shared --enable-static \
     CC=gcc CXX=g++ F77=gfortran PYTHON=$(which python) \
-    FFLAGS="$FFLAGS -O3 -march=znver3 -I/usr/local/include/" \
-    CFLAGS="$CFLAGS -O3 -march=znver3 -I/usr/local/include/ -I${PGPLOT_DIR}/include/ -L${PGPLOT_DIR}/lib/" \
-    CXXFLAGS="$CXXFLAGS -O3 -march=znver3 -I/usr/local/include -I${PGPLOT_DIR}/include/ -L${PGPLOT_DIR}/lib/" \
-    LDFLAGS="-L${PGPLOT_DIR}/lib/" && \
+    FFLAGS="$FFLAGS -O3 -I/usr/local/include -I${PGPLOT_DIR}/include -I${PSRHOME}/include -I${PSRHOME}/include/epsic" \
+    CFLAGS="$CFLAGS -O3 -I/usr/local/include -I${PGPLOT_DIR}/include -I${PSRHOME}/include -I${PSRHOME}/include/epsic" \
+    CXXFLAGS="$CXXFLAGS -O3 -I/usr/local/include -I${PGPLOT_DIR}/include -I${PSRHOME}/include -I${PSRHOME}/include/epsic" \
+    LDFLAGS="-L${PGPLOT_DIR}/lib" && \
     make -j 8 && \
     make install && \
     make clean && \
@@ -213,16 +236,16 @@ RUN mkdir -p ${PSRHOME}/share && \
 ENV DSPSR_DIR="${PSRHOME}/dspsr"
 
 WORKDIR ${DSPSR_DIR}
-#RUN swig -version && echo "${PKG_CONFIG_PATH}" && ls /software/lib/pkgconfig && echo "$(pkg-config --libs psrchive)" && echo "-I${PSRHOME}/include -I${PSRHOME}/include/epsic"
 RUN ./bootstrap && \
     echo "apsr bpsr cpsr cpsr2 gmrt sigproc fits vdif kat lwa uwb spigot guppi" > backends.list && \
-    ./configure --prefix=${PSRHOME} \
+    ./configure --prefix=${PSRHOME} --enable-static \
     PSRCHIVE_CFLAGS="$(psrchive --cflags)" \
     PSRCHIVE_LIBS="$(psrchive --libs)" \
     CC=gcc CXX=g++ F77=gfortran FC=gfortran \
-    FFLAGS="$FFLAGS -O3 -march=znver3 -I/usr/local/include -I${PGPLOT_DIR}/include -I${PSRHOME}/include -I${PSRHOME}/include/epsic" \
-    CFLAGS="$CFLAGS -O3 -march=znver3 -I/usr/local/include -I${PGPLOT_DIR}/include -I${PSRHOME}/include -I${PSRHOME}/include/epsic" \
-    CXXFLAGS="$CXXFLAGS -O3 -march=znver3 -I/usr/local/include -I${PGPLOT_DIR}/include -I${PSRHOME}/include -I${PSRHOME}/include/epsic" && \
+    FFLAGS="$FFLAGS -O3 -I/usr/local/include -I${PGPLOT_DIR}/include -I${PSRHOME}/include -I${PSRHOME}/include/epsic" \
+    CFLAGS="$CFLAGS -O3 -I/usr/local/include -I${PGPLOT_DIR}/include -I${PSRHOME}/include -I${PSRHOME}/include/epsic" \
+    CXXFLAGS="$CXXFLAGS -O3 -I/usr/local/include -I${PGPLOT_DIR}/include -I${PSRHOME}/include -I${PSRHOME}/include/epsic" \
+    LDFLAGS="-L${PGPLOT_DIR}/lib -L${PSRHOME}/lib" && \
     make -j 8 && \
     make install && \
     make clean
@@ -232,7 +255,6 @@ RUN ./bootstrap && \
 ####################
 WORKDIR ${PSRHOME}
 ENV PATH="${PATH}:${PSRHOME}/local/bin"
-ENV PYTHONPATH="${PYTHONPATH}:${PSRHOME}/local/lib/python3.12/dist-packages"
 RUN pip install --prefix=${PSRHOME} --no-cache-dir -U lmfit PyWavelets && \
     pip install --prefix=${PSRHOME} git+https://github.com/pennucci/PulsePortraiture.git@py3
 
@@ -241,7 +263,38 @@ RUN pip install --prefix=${PSRHOME} --no-cache-dir -U lmfit PyWavelets && \
 ########
 #RUN git clone https://github.com/bwmeyers/clfd.git clfd
 #WORKDIR clfd
-RUN pip install --prefix=${PSRHOME} clfd
+RUN pip install --prefix=${PSRHOME} git+https://github.com/v-morello/clfd.git@v1.0.1
 
+
+# Fix Singularity environment setup
+# Singularity: will execute scripts in /.singularity.d/env/ at startup (and ignore those in /etc/profile.d/).
+#              Standard naming of "environment" scripts is 9X-environment.sh
+RUN mkdir -p /.singularity.d/env/
+RUN echo "export OSTYPE=$OSTYPE" >> /.singularity.d/env/91-environment.sh && \
+    echo "export LANG=$LANG LC_ALL=$LC_ALL LANGUAGE=$LANGUAGE" >> /.singularity.d/env/91-environment.sh && \
+    echo "export LIBRARY_PATH=$LIBRARY_PATH" >> /.singularity.d/env/91-environment.sh && \
+    echo "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> /.singularity.d/env/91-environment.sh && \
+    echo "export C_INCLUDE_PATH=$C_INCLUDE_PATH" >> /.singularity.d/env/91-environment.sh && \
+    echo "export PKG_CONFIG_PATH=$PKG_CONFIG_PATH" >> /.singularity.d/env/91-environment.sh && \
+    echo "export PATH=$PATH" >> /.singularity.d/env/91-environment.sh && \
+    echo "export PYTHONPATH=$PYTHONPATH" >> /.singularity.d/env/91-environment.sh && \
+    echo "export PSRHOME=$PSRHOME" >> /.singularity.d/env/91-environment.sh && \
+    echo "export CALCEPH_DIR=$CALCEPH_DIR CALCEPH=$CALCEPH" >> /.singularity.d/env/91-environment.sh && \
+    echo "export PSRCAT_DIR=$PSRCAT_DIR PSRCAT_FILE=$PSRCAT_FILE" >> /.singularity.d/env/91-environment.sh && \
+    echo "export TEMPO=$TEMPO TEMPO_DIR=$TEMPO_DIR" >> /.singularity.d/env/91-environment.sh && \
+    echo "export TEMPO2=$TEMPO2 TEMPO2_DIR=$TEMPO_DIR TEMPO2_ALIAS=$TEMPO2_ALIAS" >> /.singularity.d/env/91-environment.sh && \
+    echo "export PSRSALSA_DIR=$PSRSALSA_DIR" >> /.singularity.d/env/91-environment.sh && \
+    echo "export PSRCHIVE_DIR=$PSRCHIVE_DIR PSRCHIVE_CONFIG=$PSRCHIVE_CONFIG" >> /.singularity.d/env/91-environment.sh && \
+    echo "export DSPSR_DIR=$DSPSR_DIR" >> /.singularity.d/env/91-environment.sh && \
+    echo "export PGPLOT_DIR=$PGPLOT_DIR PGPLOT_INCLUDES=$PGPLOT_INCLUDES PGPLOT_FONT=$PGPLOT_FONT" >> /.singularity.d/env/91-environment.sh && \
+    echo "export PGPLOT_DEV=$PGPLOT_DEV PGPLOT_BACKGROUND=$PGPLOT_BACKGROUND PGPLOT_FOREGROUND=$PGPLOT_FOREGROUND" >> /.singularity.d/env/91-environment.sh
+
+# Copy the recipe into the docker recipes directory
+RUN mkdir -p /opt/docker-recipes/
+COPY psr-analysis.dockerfile /opt/docker-recipes/
+
+RUN ldconfig
 
 WORKDIR ${PSRHOME}
+
+ENTRYPOINT ["/bin/bash"]
