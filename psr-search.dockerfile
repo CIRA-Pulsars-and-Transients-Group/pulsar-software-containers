@@ -9,7 +9,8 @@ ENV OSTYPE=linux
 ENV PSRHOME=/software
 ENV PATH="${PATH}:${PSRHOME}/bin"
 ENV PATH="${PATH}:${PSRHOME}/local/bin"
-ENV PYTHONPATH="${PYTHONPATH}:${PSRHOME}/local/lib/python3.12/dist-packages"
+ENV PYTHONPATH="${PYTHONPATH}:${PSRHOME}/local/lib/python3.12/site-packages:${PSRHOME}/local/lib/python3.12/dist-packages"
+ENV PYTHONPATH="${PYTHONPATH}:${PSRHOME}/lib/python3.12/site-packages:${PSRHOME}/lib/python3.12/dist-packages"
 
 RUN apt-get update &&\
     apt-get install -y --no-install-recommends \
@@ -56,7 +57,10 @@ RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1
     rm /usr/lib/python3.12/EXTERNALLY-MANAGED && \
     python -V && \
     python3 -V
-RUN pip install meson meson-python ninja
+
+RUN pip install meson meson-python ninja && \
+    pip install --prefix=${PSRHOME} ipython && \
+    pip install --prefix=${PSRHOME} future
 
 # Download software repositories
 WORKDIR ${PSRHOME}
@@ -115,7 +119,7 @@ RUN CFLAGS="$CFLAGS -march=znver3 -O3" meson compile -C build && \
     meson install -C build
 
 WORKDIR ${PRESTO}/python
-RUN pip install --config-settings=builddir=build .
+RUN pip install --prefix=${PSRHOME} --config-settings=builddir=build .
 
 # Ensure scripts in presto/examplescripts are executable
 RUN chmod +x ${PRESTO}/examplescripts/*.py
@@ -170,4 +174,9 @@ RUN echo "export OSTYPE=$OSTYPE" >> /.singularity.d/env/91-environment.sh && \
 RUN mkdir -p /opt/docker-recipes/
 COPY psr-search.dockerfile /opt/docker-recipes/
 
+RUN ldconfig
+
 WORKDIR ${PSRHOME}
+
+RUN /bin/mv /bin/sh /bin/sh.original && /bin/ln -s /bin/bash /bin/sh
+
